@@ -21,7 +21,6 @@ All data processing happens entirely in the browser. Visitor names are never tra
 ---
 
 ## Architecture
-
 - **Single HTML file** (`index.html`) with embedded CSS and JavaScript.
 - **No frameworks**, no build tools, no npm. Pure HTML/CSS/JS only.
 - **Two libraries loaded via CDN:**
@@ -38,29 +37,30 @@ All data processing happens entirely in the browser. Visitor names are never tra
 
 The admin must prepare the Excel file (`.xlsx`) with exactly the following columns in the first sheet. The first row is a header row and is ignored.
 
-| Column A | Column B | Column C | Column D |
-|---|---|---|---|
-| `visitor_name` | `guide_name` | `group_number` | `stays` |
+| Column A | Column B | Column C | Column D | Column E |
+|---|---|---|---|---|
+| `visitor_name` | `guide_name` | `guide_email` | `group_number` | `stays` |
 
 ### Column Definitions
 
 | Column | Type | Description |
 |---|---|---|
-| `visitor_name` | String | Full name of the visitor exactly as they will type it. |
-| `guide_name` | String | Full name of the assigned guide. Informational only. |
-| `group_number` | Integer | The number shown to the visitor and held up by the guide. Visitors assigned to the same guide share the same number. |
-| `stays` | String | Write `yes` if the visitor stays in the room, leave empty or write `no` otherwise. |
+| `visitor_name` | String | Full name of the Schnuppernde exactly as they will type it. |
+| `guide_name` | String | Full name of the assigned Lernende. |
+| `guide_email` | String | Email address of the Lernende. Used for the optional mailto notification. Only needs to be filled in once per Lernende — duplicate rows for the same Lernende can leave this empty. |
+| `group_number` | Integer | The number shown to the Schnuppernde and held up by the Lernende. All Schnuppernde assigned to the same Lernende share the same number. |
+| `stays` | String | Write `yes` if the Schnuppernde stays in the room, leave empty or write `no` otherwise. |
 
 ### Example
 
-| visitor_name | guide_name | group_number | stays |
-|---|---|---|---|
-| Anna Müller | Thomas Becker | 1 | |
-| Jonas Weber | Thomas Becker | 1 | |
-| Sara Keller | Lisa Huber | 2 | |
-| Marco Rossi | Lisa Huber | 2 | |
-| Petra Schmid | | | yes |
-| David Meier | | | yes |
+| visitor_name | guide_name | guide_email | group_number | stays |
+|---|---|---|---|---|
+| Anna Müller | Thomas Becker | t.becker@firma.ch | 1 | |
+| Jonas Weber | Thomas Becker | | 1 | |
+| Sara Keller | Lisa Huber | l.huber@firma.ch | 2 | |
+| Marco Rossi | Lisa Huber | | 2 | |
+| Petra Schmid | | | | yes |
+| David Meier | | | | yes |
 
 ---
 
@@ -82,6 +82,7 @@ Triggered when the URL has no hash (e.g. `https://yoursite.github.io/app/`).
 │  (visible only after successful parse) │
 ├────────────────────────────────────────┤
 │  Step 3: Generate QR Code              │
+│  ☐ Also notify Lernende via email      │
 │  [ Generate QR Code ] (button)         │
 │  (visible only after successful parse) │
 │                                        │
@@ -89,8 +90,9 @@ Triggered when the URL has no hash (e.g. `https://yoursite.github.io/app/`).
 │  │   QR Code    │                      │
 │  └──────────────┘                      │
 │  [ Copy Link ] [ Download QR ]         │
+│  [ Notify Lernende ] (if checked)      │
 ├────────────────────────────────────────┤
-│  Visitors Staying in Room:             │
+│  Schnuppernde Staying in Room:         │
 │  (list of names — shown after parse)   │
 └────────────────────────────────────────┘
 ```
@@ -98,17 +100,27 @@ Triggered when the URL has no hash (e.g. `https://yoursite.github.io/app/`).
 ### Behaviour
 
 - File upload supports drag-and-drop and click-to-browse.
-- After the file is uploaded, validate that columns A–D exist. Show a clear error message if the format is wrong.
+- After the file is uploaded, validate that columns A–E exist. Show a clear error message if the format is wrong.
 - Parse all rows into an array of assignment objects.
-- Display a summary table showing all assignments grouped by guide.
+- Display a summary table showing all assignments grouped by Lernende.
 - Highlight rows where `stays = yes` separately.
+- A checkbox labelled **"Also notify Lernende via email"** is shown directly above the "Generate QR Code" button. It is unchecked by default.
 - On "Generate QR Code":
   - Serialize the assignments array to JSON.
   - Base64-encode it: `btoa(unescape(encodeURIComponent(JSON.stringify(data))))`.
   - Construct the full URL: `window.location.origin + window.location.pathname + '#' + encodedData`.
   - Render the QR code using QRCode.js targeting a `<div>`.
   - Show a "Copy Link" button and a "Download QR as PNG" button.
-- Show the "Visitors Staying in Room" section as a separate highlighted list below the QR code.
+  - If the email checkbox is checked, show a **"Notify Lernende"** button below the QR code.
+- On "Notify Lernende" (only visible if checkbox was checked):
+  - Group the parsed data by Lernende (by `guide_name` + `guide_email`).
+  - For each Lernende with a valid `guide_email`, construct a `mailto:` link with:
+    - `to`: `guide_email`
+    - `subject`: `Your group number for today's event`
+    - `body`: A short message stating their group number and a brief instruction (e.g. "Please wait outside the room and hold up the number [X] on your phone so Schnuppernde can find you.")
+  - Open each `mailto:` link sequentially with a small delay (300ms) between each to avoid the browser blocking multiple popups.
+  - Show a confirmation list of which Lernende were notified and which had no email address in the Excel.
+- Show the "Schnuppernde Staying in Room" section as a separate highlighted list below the QR code.
 
 ---
 
@@ -208,11 +220,12 @@ Triggered when the URL contains a hash (e.g. `https://yoursite.github.io/app/#ey
 
 | Situation | Message to show |
 |---|---|
-| Wrong Excel format | "The uploaded file does not match the expected format. Please check that columns A–D are: visitor_name, guide_name, group_number, stays." |
+| Wrong Excel format | "The uploaded file does not match the expected format. Please check that columns A–E are: visitor_name, guide_name, guide_email, group_number, stays." |
 | Name not found (exact) | "Name not found. Please check your spelling and try again." |
 | Name not found (fuzzy failed too) | Same as above. |
 | Invalid/corrupt QR hash | "This QR code is invalid or could not be read. Please ask the event coordinator for a new one." |
 | Excel file is empty | "The uploaded file contains no visitor data." |
+| Lernende has no email address | Show a warning in the notification confirmation list: "[Name] — no email address provided, skipped." |
 
 ---
 

@@ -432,6 +432,9 @@
       <!-- Step 3: Generate QR -->
       <section class="card hidden" id="step-qr">
         <h2>Step 3: Generate QR Code</h2>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:0.95rem;cursor:pointer;">
+          <input type="checkbox" id="chk-email"> Also notify Lernende via email
+        </label>
         <button class="btn btn-primary" id="btn-generate">Generate QR Code</button>
         <div id="qr-section" class="hidden">
           <div class="qr-wrapper">
@@ -442,6 +445,10 @@
             <button class="btn btn-secondary" id="btn-download-qr">Download QR</button>
           </div>
           <div id="copy-feedback" class="success-msg hidden" style="text-align:center;">Link copied to clipboard!</div>
+          <div class="btn-group hidden" id="notify-section" style="justify-content:center;margin-top:12px;">
+            <button class="btn btn-primary" id="btn-notify">Notify Lernende</button>
+          </div>
+          <div id="notify-results" class="hidden" style="margin-top:16px;"></div>
         </div>
       </section>
 
@@ -534,6 +541,10 @@
         var btnCopyLink = document.getElementById('btn-copy-link');
         var btnDownloadQr = document.getElementById('btn-download-qr');
         var copyFeedback = document.getElementById('copy-feedback');
+        var chkEmail = document.getElementById('chk-email');
+        var notifySection = document.getElementById('notify-section');
+        var btnNotify = document.getElementById('btn-notify');
+        var notifyResults = document.getElementById('notify-results');
 
         // Drag and drop
         dropZone.addEventListener('click', function () {
@@ -605,10 +616,10 @@
 
               // Validate header
               var header = rows[0];
-              var expectedHeaders = ['visitor_name', 'guide_name', 'group_number', 'stays'];
-              var valid = header && header.length >= 4;
+              var expectedHeaders = ['visitor_name', 'guide_name', 'guide_email', 'group_number', 'stays'];
+              var valid = header && header.length >= 5;
               if (valid) {
-                for (var i = 0; i < 4; i++) {
+                for (var i = 0; i < 5; i++) {
                   if (String(header[i]).trim().toLowerCase() !== expectedHeaders[i]) {
                     valid = false;
                     break;
@@ -616,7 +627,7 @@
                 }
               }
               if (!valid) {
-                showError('The uploaded file does not match the expected format. Please check that columns A\u2013D are: visitor_name, guide_name, group_number, stays.');
+                showError('The uploaded file does not match the expected format. Please check that columns A\u2013E are: visitor_name, guide_name, guide_email, group_number, stays.');
                 return;
               }
 
@@ -627,14 +638,16 @@
                 if (!row || !row[0]) continue; // skip empty rows
                 var visitorName = String(row[0] || '').trim();
                 var guideName = String(row[1] || '').trim();
-                var groupNumber = row[2] != null ? Number(row[2]) : null;
-                var stays = String(row[3] || '').trim().toLowerCase() === 'yes';
+                var guideEmail = String(row[2] || '').trim();
+                var groupNumber = row[3] != null ? Number(row[3]) : null;
+                var stays = String(row[4] || '').trim().toLowerCase() === 'yes';
 
                 if (!visitorName) continue;
 
                 assignments.push({
                   visitor_name: visitorName,
                   guide_name: guideName,
+                  guide_email: guideEmail,
                   group_number: groupNumber,
                   stays: stays
                 });
@@ -737,6 +750,80 @@
 
           qrSection.classList.remove('hidden');
           copyFeedback.classList.add('hidden');
+
+          // Show/hide Notify button based on checkbox
+          if (chkEmail.checked) {
+            notifySection.classList.remove('hidden');
+          } else {
+            notifySection.classList.add('hidden');
+          }
+          notifyResults.classList.add('hidden');
+          notifyResults.innerHTML = '';
+        });
+
+        // Notify Lernende
+        btnNotify.addEventListener('click', function () {
+          // Group by guide_name, collect first non-empty guide_email per guide
+          var guides = {};
+          assignments.forEach(function (a) {
+            if (!a.guide_name || a.stays) return;
+            if (!guides[a.guide_name]) {
+              guides[a.guide_name] = { email: '', groupNumber: a.group_number };
+            }
+            if (a.guide_email && !guides[a.guide_name].email) {
+              guides[a.guide_name].email = a.guide_email;
+            }
+          });
+
+          var guideList = Object.keys(guides).map(function (name) {
+            return { name: name, email: guides[name].email, groupNumber: guides[name].groupNumber };
+          });
+
+          var notified = [];
+          var skipped = [];
+
+          guideList.forEach(function (g) {
+            if (g.email) {
+              notified.push(g);
+            } else {
+              skipped.push(g);
+            }
+          });
+
+          if (notified.length > 0) {
+            var allEmails = notified.map(function (g) { return g.email; }).join(',');
+            var subject = encodeURIComponent('Your group number for today\'s event');
+            var bodyLines = notified.map(function (g) {
+              return g.name + ' → Group ' + g.groupNumber;
+            });
+            var body = encodeURIComponent(
+              'Hello,\n\n' +
+              'Here are today\'s group assignments:\n\n' +
+              bodyLines.join('\n') + '\n\n' +
+              'Please wait outside the room and hold up your group number on your phone so Schnuppernde can find you.\n\nThank you!'
+            );
+            var mailto = 'mailto:' + allEmails + '?subject=' + subject + '&body=' + body;
+            window.location.href = mailto;
+          }
+
+          // Render confirmation list
+          var html = '';
+          if (notified.length > 0) {
+            html += '<div class="success-msg" style="margin-bottom:8px;">';
+            notified.forEach(function (g) {
+              html += '<div>\u2713 ' + escapeHtml(g.name) + ' \u2014 notified at ' + escapeHtml(g.email) + '</div>';
+            });
+            html += '</div>';
+          }
+          if (skipped.length > 0) {
+            html += '<div class="error-msg">';
+            skipped.forEach(function (g) {
+              html += '<div>\u26A0 ' + escapeHtml(g.name) + ' \u2014 no email address provided, skipped.</div>';
+            });
+            html += '</div>';
+          }
+          notifyResults.innerHTML = html;
+          notifyResults.classList.remove('hidden');
         });
 
         // Copy Link
