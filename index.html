@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Visitor Assignment Tool</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --primary: #1a3c6e;
+      --accent: #2e7df7;
+      --success: #22c55e;
+      --error: #ef4444;
+      --card-bg: #f8f9fa;
+      --border: #e2e8f0;
+      --white: #ffffff;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--white);
+      color: #1e293b;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 24px 16px;
+    }
+
+    /* Header */
+    .app-header {
+      text-align: center;
+      padding: 32px 0 24px;
+    }
+
+    .app-header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 4px;
+    }
+
+    .app-header p {
+      font-size: 0.95rem;
+      color: #64748b;
+    }
+
+    /* Cards / Sections */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .card h2 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--primary);
+      margin-bottom: 16px;
+    }
+
+    .card-green {
+      background: #f0fdf4;
+      border-color: #bbf7d0;
+    }
+
+    /* Hidden */
+    .hidden {
+      display: none !important;
+    }
+
+    /* Drop Zone */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      color: #64748b;
+      font-size: 0.95rem;
+    }
+
+    .drop-zone:hover,
+    .drop-zone.dragover {
+      border-color: var(--accent);
+      background: #eff6ff;
+    }
+
+    .drop-zone-icon {
+      font-size: 2.5rem;
+      margin-bottom: 8px;
+      display: block;
+    }
+
+    .drop-zone input[type="file"] {
+      display: none;
+    }
+
+    /* Table */
+    .assignment-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    .assignment-table th {
+      background: var(--primary);
+      color: var(--white);
+      padding: 10px 12px;
+      text-align: left;
+      font-weight: 600;
+    }
+
+    .assignment-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .assignment-table tr:nth-child(even) td {
+      background: #f1f5f9;
+    }
+
+    .assignment-table tr:hover td {
+      background: #e2e8f0;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: var(--white);
+    }
+
+    .btn-primary:hover {
+      background: #1b6de8;
+    }
+
+    .btn-secondary {
+      background: var(--white);
+      color: var(--primary);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      background: var(--card-bg);
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+
+    /* QR code */
+    .qr-wrapper {
+      display: flex;
+      justify-content: center;
+      margin: 20px 0;
+    }
+
+    #qr-code {
+      width: 256px;
+      height: 256px;
+    }
+
+    #qr-code img, #qr-code canvas {
+      display: block;
+    }
+
+    /* Staying list */
+    .staying-list {
+      list-style: none;
+      padding: 0;
+    }
+
+    .staying-list li {
+      padding: 8px 0;
+      border-bottom: 1px solid #bbf7d0;
+      font-weight: 500;
+    }
+
+    .staying-list li:last-child {
+      border-bottom: none;
+    }
+
+    /* Error message */
+    .error-msg {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: var(--error);
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      margin-top: 12px;
+    }
+
+    .success-msg {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      color: #15803d;
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      margin-top: 12px;
+    }
+
+    /* ============ VISITOR MODE ============ */
+    .visitor-container {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+
+    .visitor-inner {
+      width: 100%;
+      max-width: 480px;
+      text-align: center;
+    }
+
+    .visitor-inner .app-header {
+      margin-bottom: 32px;
+    }
+
+    .visitor-input-group {
+      margin-bottom: 20px;
+    }
+
+    .visitor-input {
+      width: 100%;
+      font-size: 1.2rem;
+      padding: 12px 16px;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .visitor-input:focus {
+      border-color: var(--accent);
+    }
+
+    .visitor-btn {
+      width: 100%;
+      padding: 14px;
+      font-size: 1.1rem;
+      margin-top: 12px;
+    }
+
+    /* Result Cards */
+    .result-card {
+      margin-top: 32px;
+      padding: 32px 24px;
+      border-radius: 12px;
+      animation: fadeIn 0.4s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .result-card-group {
+      background: #eff6ff;
+      border: 2px solid var(--accent);
+    }
+
+    .result-card-group .group-number {
+      font-size: 5rem;
+      font-weight: 700;
+      color: var(--primary);
+      line-height: 1.1;
+      margin: 12px 0;
+    }
+
+    .result-card-group p {
+      color: #475569;
+      font-size: 1rem;
+    }
+
+    .result-card-stay {
+      background: #f0fdf4;
+      border: 2px solid var(--success);
+    }
+
+    .result-card-stay .stay-icon {
+      font-size: 3rem;
+      margin-bottom: 8px;
+    }
+
+    .result-card-stay p {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #15803d;
+    }
+
+    .result-card-error {
+      background: #fef2f2;
+      border: 2px solid var(--error);
+    }
+
+    .result-card-error p {
+      color: var(--error);
+      font-weight: 500;
+    }
+
+    /* Disambiguation */
+    .disambiguate-list {
+      list-style: none;
+      padding: 0;
+      margin-top: 12px;
+    }
+
+    .disambiguate-list li {
+      margin-bottom: 8px;
+    }
+
+    .disambiguate-list button {
+      width: 100%;
+      padding: 10px;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .disambiguate-list button:hover {
+      background: #eff6ff;
+      border-color: var(--accent);
+    }
+
+    /* Responsive */
+    @media (max-width: 480px) {
+      .app-header h1 {
+        font-size: 1.25rem;
+      }
+
+      .card {
+        padding: 16px;
+      }
+
+      .assignment-table {
+        font-size: 0.8rem;
+      }
+
+      .assignment-table th,
+      .assignment-table td {
+        padding: 6px 8px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ==================== ADMIN MODE ==================== -->
+  <div id="admin-mode" class="hidden">
+    <div class="container">
+      <header class="app-header">
+        <h1>Visitor Assignment Tool</h1>
+        <p>Manage visitor-to-guide assignments for your event</p>
+      </header>
+
+      <!-- Step 1: Upload -->
+      <section class="card">
+        <h2>Step 1: Upload Excel File</h2>
+        <div class="drop-zone" id="drop-zone">
+          <span class="drop-zone-icon">📄</span>
+          <span>Drop your <strong>.xlsx</strong> file here or click to upload</span>
+          <input type="file" id="file-input" accept=".xlsx">
+        </div>
+        <div id="upload-error" class="error-msg hidden"></div>
+        <div id="upload-success" class="success-msg hidden"></div>
+      </section>
+
+      <!-- Step 2: Review -->
+      <section class="card hidden" id="step-review">
+        <h2>Step 2: Review Assignments</h2>
+        <div style="overflow-x: auto;">
+          <table class="assignment-table" id="assignment-table">
+            <thead>
+              <tr>
+                <th>Visitor</th>
+                <th>Guide</th>
+                <th>Group #</th>
+              </tr>
+            </thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Step 3: Generate QR -->
+      <section class="card hidden" id="step-qr">
+        <h2>Step 3: Generate QR Code</h2>
+        <button class="btn btn-primary" id="btn-generate">Generate QR Code</button>
+        <div id="qr-section" class="hidden">
+          <div class="qr-wrapper">
+            <div id="qr-code"></div>
+          </div>
+          <div class="btn-group" style="justify-content: center;">
+            <button class="btn btn-secondary" id="btn-copy-link">Copy Link</button>
+            <button class="btn btn-secondary" id="btn-download-qr">Download QR</button>
+          </div>
+          <div id="copy-feedback" class="success-msg hidden" style="text-align:center;">Link copied to clipboard!</div>
+        </div>
+      </section>
+
+      <!-- Staying List -->
+      <section class="card card-green hidden" id="step-staying">
+        <h2>Visitors Staying in Room</h2>
+        <ul class="staying-list" id="staying-list"></ul>
+      </section>
+    </div>
+  </div>
+
+  <!-- ==================== VISITOR MODE ==================== -->
+  <div id="visitor-mode" class="hidden">
+    <div class="visitor-container">
+      <div class="visitor-inner">
+        <header class="app-header">
+          <h1>Visitor Assignment Tool</h1>
+          <p>Find your assigned group</p>
+        </header>
+
+        <div id="visitor-error-global" class="error-msg hidden" style="margin-bottom:20px;"></div>
+
+        <div id="visitor-form">
+          <div class="visitor-input-group">
+            <input type="text" id="visitor-name" class="visitor-input" placeholder="Enter your full name" autocomplete="off" autofocus>
+          </div>
+          <button class="btn btn-primary visitor-btn" id="btn-find">Find my group</button>
+        </div>
+
+        <div id="visitor-result" class="hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // ========== Levenshtein Distance ==========
+      function levenshtein(a, b) {
+        var m = a.length, n = b.length;
+        var dp = [];
+        for (var i = 0; i <= m; i++) {
+          dp[i] = [i];
+        }
+        for (var j = 0; j <= n; j++) {
+          dp[0][j] = j;
+        }
+        for (var i = 1; i <= m; i++) {
+          for (var j = 1; j <= n; j++) {
+            if (a[i - 1] === b[j - 1]) {
+              dp[i][j] = dp[i - 1][j - 1];
+            } else {
+              dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+            }
+          }
+        }
+        return dp[m][n];
+      }
+
+      // ========== State ==========
+      var assignments = [];
+      var generatedUrl = '';
+
+      // ========== Mode Detection ==========
+      var hash = window.location.hash;
+      if (hash && hash.length > 1) {
+        initVisitorMode();
+      } else {
+        initAdminMode();
+      }
+
+      // ========== ADMIN MODE ==========
+      function initAdminMode() {
+        var adminEl = document.getElementById('admin-mode');
+        adminEl.classList.remove('hidden');
+
+        var dropZone = document.getElementById('drop-zone');
+        var fileInput = document.getElementById('file-input');
+        var uploadError = document.getElementById('upload-error');
+        var uploadSuccess = document.getElementById('upload-success');
+        var stepReview = document.getElementById('step-review');
+        var stepQr = document.getElementById('step-qr');
+        var stepStaying = document.getElementById('step-staying');
+        var tableBody = document.getElementById('table-body');
+        var stayingList = document.getElementById('staying-list');
+        var btnGenerate = document.getElementById('btn-generate');
+        var qrSection = document.getElementById('qr-section');
+        var qrCodeDiv = document.getElementById('qr-code');
+        var btnCopyLink = document.getElementById('btn-copy-link');
+        var btnDownloadQr = document.getElementById('btn-download-qr');
+        var copyFeedback = document.getElementById('copy-feedback');
+
+        // Drag and drop
+        dropZone.addEventListener('click', function () {
+          fileInput.click();
+        });
+
+        dropZone.addEventListener('dragover', function (e) {
+          e.preventDefault();
+          dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', function () {
+          dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', function (e) {
+          e.preventDefault();
+          dropZone.classList.remove('dragover');
+          var files = e.dataTransfer.files;
+          if (files.length > 0) {
+            handleFile(files[0]);
+          }
+        });
+
+        fileInput.addEventListener('change', function () {
+          if (fileInput.files.length > 0) {
+            handleFile(fileInput.files[0]);
+          }
+        });
+
+        function showError(msg) {
+          uploadError.textContent = msg;
+          uploadError.classList.remove('hidden');
+          uploadSuccess.classList.add('hidden');
+        }
+
+        function showSuccess(msg) {
+          uploadSuccess.textContent = msg;
+          uploadSuccess.classList.remove('hidden');
+          uploadError.classList.add('hidden');
+        }
+
+        function handleFile(file) {
+          uploadError.classList.add('hidden');
+          uploadSuccess.classList.add('hidden');
+
+          if (!file.name.endsWith('.xlsx')) {
+            showError('Please upload a .xlsx file.');
+            return;
+          }
+
+          var reader = new FileReader();
+          reader.onload = function (e) {
+            try {
+              var data = new Uint8Array(e.target.result);
+              var workbook = XLSX.read(data, { type: 'array' });
+              var sheetName = workbook.SheetNames[0];
+              if (!sheetName) {
+                showError('The uploaded file contains no sheets.');
+                return;
+              }
+              var sheet = workbook.Sheets[sheetName];
+              var rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+              if (rows.length < 2) {
+                showError('The uploaded file contains no visitor data.');
+                return;
+              }
+
+              // Validate header
+              var header = rows[0];
+              var expectedHeaders = ['visitor_name', 'guide_name', 'group_number', 'stays'];
+              var valid = header && header.length >= 4;
+              if (valid) {
+                for (var i = 0; i < 4; i++) {
+                  if (String(header[i]).trim().toLowerCase() !== expectedHeaders[i]) {
+                    valid = false;
+                    break;
+                  }
+                }
+              }
+              if (!valid) {
+                showError('The uploaded file does not match the expected format. Please check that columns A\u2013D are: visitor_name, guide_name, group_number, stays.');
+                return;
+              }
+
+              // Parse data rows
+              assignments = [];
+              for (var r = 1; r < rows.length; r++) {
+                var row = rows[r];
+                if (!row || !row[0]) continue; // skip empty rows
+                var visitorName = String(row[0] || '').trim();
+                var guideName = String(row[1] || '').trim();
+                var groupNumber = row[2] != null ? Number(row[2]) : null;
+                var stays = String(row[3] || '').trim().toLowerCase() === 'yes';
+
+                if (!visitorName) continue;
+
+                assignments.push({
+                  visitor_name: visitorName,
+                  guide_name: guideName,
+                  group_number: groupNumber,
+                  stays: stays
+                });
+              }
+
+              if (assignments.length === 0) {
+                showError('The uploaded file contains no visitor data.');
+                return;
+              }
+
+              showSuccess('Successfully loaded ' + assignments.length + ' visitor(s).');
+              renderTable();
+              renderStayingList();
+              stepReview.classList.remove('hidden');
+              stepQr.classList.remove('hidden');
+
+              // Reset QR section
+              qrSection.classList.add('hidden');
+              qrCodeDiv.innerHTML = '';
+              generatedUrl = '';
+
+            } catch (err) {
+              showError('Failed to parse the Excel file. Please ensure it is a valid .xlsx file.');
+            }
+          };
+          reader.readAsArrayBuffer(file);
+        }
+
+        function renderTable() {
+          tableBody.innerHTML = '';
+          var touring = assignments.filter(function (a) { return !a.stays; });
+          var grouped = {};
+          touring.forEach(function (a) {
+            var key = a.group_number + '|' + a.guide_name;
+            if (!grouped[key]) grouped[key] = [];
+            grouped[key].push(a);
+          });
+
+          // Sort by group number
+          var keys = Object.keys(grouped).sort(function (a, b) {
+            return Number(a.split('|')[0]) - Number(b.split('|')[0]);
+          });
+
+          keys.forEach(function (key) {
+            var list = grouped[key];
+            list.forEach(function (a) {
+              var tr = document.createElement('tr');
+              tr.innerHTML = '<td>' + escapeHtml(a.visitor_name) + '</td><td>' + escapeHtml(a.guide_name) + '</td><td>' + (a.group_number || '') + '</td>';
+              tableBody.appendChild(tr);
+            });
+          });
+        }
+
+        function renderStayingList() {
+          stayingList.innerHTML = '';
+          var staying = assignments.filter(function (a) { return a.stays; });
+          if (staying.length === 0) {
+            stepStaying.classList.add('hidden');
+            return;
+          }
+          staying.forEach(function (a) {
+            var li = document.createElement('li');
+            li.textContent = a.visitor_name;
+            stayingList.appendChild(li);
+          });
+          stepStaying.classList.remove('hidden');
+        }
+
+        // Generate QR
+        btnGenerate.addEventListener('click', function () {
+          // Compact keys to reduce payload size
+          var compact = assignments.map(function (a) {
+            var obj = { n: a.visitor_name };
+            if (a.stays) { obj.s = 1; }
+            else {
+              if (a.guide_name) obj.g = a.guide_name;
+              if (a.group_number != null) obj.p = a.group_number;
+            }
+            return obj;
+          });
+          var jsonStr = JSON.stringify(compact);
+          // Compress with pako then Base64-encode
+          var compressed = pako.deflateRaw(jsonStr);
+          var binary = '';
+          for (var i = 0; i < compressed.length; i++) {
+            binary += String.fromCharCode(compressed[i]);
+          }
+          var encoded = btoa(binary);
+          generatedUrl = window.location.origin + window.location.pathname + '#' + encoded;
+
+          qrCodeDiv.innerHTML = '';
+          new QRCode(qrCodeDiv, {
+            text: generatedUrl,
+            width: 256,
+            height: 256,
+            colorDark: '#1a3c6e',
+            colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.L
+          });
+
+          qrSection.classList.remove('hidden');
+          copyFeedback.classList.add('hidden');
+        });
+
+        // Copy Link
+        btnCopyLink.addEventListener('click', function () {
+          navigator.clipboard.writeText(generatedUrl).then(function () {
+            copyFeedback.classList.remove('hidden');
+            setTimeout(function () {
+              copyFeedback.classList.add('hidden');
+            }, 2000);
+          });
+        });
+
+        // Download QR
+        btnDownloadQr.addEventListener('click', function () {
+          var canvas = qrCodeDiv.querySelector('canvas');
+          if (!canvas) return;
+          var link = document.createElement('a');
+          link.download = 'visitor-assignment-qr.png';
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+        });
+      }
+
+      // ========== VISITOR MODE ==========
+      function initVisitorMode() {
+        var visitorEl = document.getElementById('visitor-mode');
+        visitorEl.classList.remove('hidden');
+
+        var globalError = document.getElementById('visitor-error-global');
+        var visitorForm = document.getElementById('visitor-form');
+        var visitorResult = document.getElementById('visitor-result');
+        var nameInput = document.getElementById('visitor-name');
+        var btnFind = document.getElementById('btn-find');
+
+        // Decode data
+        var data;
+        try {
+          var raw = window.location.hash.slice(1);
+          var binaryStr = atob(raw);
+          var bytes = new Uint8Array(binaryStr.length);
+          for (var i = 0; i < binaryStr.length; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+          var jsonStr = pako.inflateRaw(bytes, { to: 'string' });
+          var compact = JSON.parse(jsonStr);
+          // Expand compact keys back to full format
+          data = compact.map(function (c) {
+            return {
+              visitor_name: c.n,
+              guide_name: c.g || '',
+              group_number: c.p || null,
+              stays: !!c.s
+            };
+          });
+        } catch (e) {
+          globalError.textContent = 'This QR code is invalid or could not be read. Please ask the event coordinator for a new one.';
+          globalError.classList.remove('hidden');
+          visitorForm.classList.add('hidden');
+          return;
+        }
+
+        if (!Array.isArray(data) || data.length === 0) {
+          globalError.textContent = 'This QR code is invalid or could not be read. Please ask the event coordinator for a new one.';
+          globalError.classList.remove('hidden');
+          visitorForm.classList.add('hidden');
+          return;
+        }
+
+        function doLookup() {
+          var input = nameInput.value.trim();
+          if (!input) return;
+
+          var inputLower = input.toLowerCase();
+          visitorResult.classList.add('hidden');
+
+          // Exact match (case-insensitive, trimmed)
+          var exactMatch = null;
+          for (var i = 0; i < data.length; i++) {
+            if (data[i].visitor_name.trim().toLowerCase() === inputLower) {
+              exactMatch = data[i];
+              break;
+            }
+          }
+
+          if (exactMatch) {
+            showResult(exactMatch);
+            return;
+          }
+
+          // Fuzzy match — Levenshtein ≤ 2
+          var candidates = [];
+          var bestDist = Infinity;
+          for (var i = 0; i < data.length; i++) {
+            var dist = levenshtein(inputLower, data[i].visitor_name.trim().toLowerCase());
+            if (dist <= 2) {
+              candidates.push({ entry: data[i], dist: dist });
+              if (dist < bestDist) bestDist = dist;
+            }
+          }
+
+          if (candidates.length === 0) {
+            showNotFound();
+            return;
+          }
+
+          // Filter to best distance
+          var best = candidates.filter(function (c) { return c.dist === bestDist; });
+
+          if (best.length === 1) {
+            showResult(best[0].entry);
+          } else {
+            // Disambiguation
+            showDisambiguate(best);
+          }
+        }
+
+        btnFind.addEventListener('click', doLookup);
+        nameInput.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            doLookup();
+          }
+        });
+
+        function showResult(entry) {
+          var stays = String(entry.stays).toLowerCase() === 'true' || entry.stays === true || String(entry.stays).toLowerCase() === 'yes';
+
+          if (stays) {
+            visitorResult.innerHTML =
+              '<div class="result-card result-card-stay">' +
+              '<div class="stay-icon">🪑</div>' +
+              '<p>Please remain seated.<br>You are staying in the room.</p>' +
+              '</div>';
+          } else {
+            var num = entry.group_number;
+            visitorResult.innerHTML =
+              '<div class="result-card result-card-group">' +
+              '<p>Your group number is:</p>' +
+              '<div class="group-number">' + escapeHtml(String(num)) + '</div>' +
+              '<p>Find the guide holding the number <strong>' + escapeHtml(String(num)) + '</strong> outside.</p>' +
+              '</div>';
+          }
+          visitorResult.classList.remove('hidden');
+        }
+
+        function showNotFound() {
+          visitorResult.innerHTML =
+            '<div class="result-card result-card-error">' +
+            '<p>Name not found. Please check your spelling and try again.</p>' +
+            '</div>';
+          visitorResult.classList.remove('hidden');
+        }
+
+        function showDisambiguate(matches) {
+          var html = '<div class="result-card result-card-group">' +
+            '<p>Multiple matches found. Did you mean:</p>' +
+            '<ul class="disambiguate-list">';
+          matches.forEach(function (m, idx) {
+            html += '<li><button data-idx="' + idx + '">' + escapeHtml(m.entry.visitor_name) + '</button></li>';
+          });
+          html += '</ul></div>';
+          visitorResult.innerHTML = html;
+          visitorResult.classList.remove('hidden');
+
+          // Attach click handlers
+          var buttons = visitorResult.querySelectorAll('.disambiguate-list button');
+          buttons.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              var i = Number(btn.getAttribute('data-idx'));
+              showResult(matches[i].entry);
+            });
+          });
+        }
+      }
+
+      // ========== Utility ==========
+      function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+      }
+
+    })();
+  </script>
+</body>
+</html>
