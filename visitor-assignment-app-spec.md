@@ -11,25 +11,31 @@ All data processing happens entirely in the browser. Visitor names are never tra
 
 ## Core Concept
 
-1. The **admin** uploads a pre-filled Excel file containing visitor-to-guide assignments.
+1. The **admin** uploads a pre-filled Excel file containing Schnuppernde-to-Lernende assignments.
 2. The app parses the Excel, encodes all assignment data into a compressed URL hash, and generates a **QR code** pointing to that URL.
-3. **Visitors** scan the QR code on their phones, type their name, and receive their assigned group number.
-4. **Guides** wait outside the room holding up their group number on their phone.
-5. Visitors match their number to the correct guide and leave with them.
-6. Some visitors are designated to **stay in the room** — the app informs them of this instead of showing a number.
+3. The app also generates a **personal guide link** for each Lernende, included in the notification email.
+4. **Schnuppernde** scan the QR code on their phones, type their name, and receive their assigned group number.
+5. **Lernende** open their personal link on their phone — a fullscreen display of their group number appears, ready to be held up outside the room.
+6. Schnuppernde match their number to the Lernende holding up the same number and leave with them.
+7. Some Schnuppernde are designated to **stay in the room** — the app informs them of this instead of showing a number.
 
 ---
 
 ## Architecture
+
 - **Single HTML file** (`index.html`) with embedded CSS and JavaScript.
 - **No frameworks**, no build tools, no npm. Pure HTML/CSS/JS only.
 - **Two libraries loaded via CDN:**
   - [SheetJS (xlsx)](https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js) — for parsing the Excel file. Use version **0.20.3 from `cdn.sheetjs.com`** (the official source). Do **not** use the `cdnjs.cloudflare.com` or npm versions — they are outdated (0.18.5) and contain known security vulnerabilities (CVE-2023-30533, CVE-2024-22363).
   - [QRCode.js](https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js) — for generating the QR code.
 - **Data encoding:** The parsed assignment data is serialized to JSON, then Base64-encoded, and appended to the URL as a hash fragment (e.g. `https://yoursite.github.io/app/#<base64>`). The hash is never sent to the server.
-- **Two modes** are detected automatically based on the URL:
+- **Three modes** are detected automatically by decoding the URL hash and reading its `mode` field:
   - If the URL has **no hash** → Admin Mode.
-  - If the URL has **a hash** → Visitor Mode.
+  - If the decoded hash contains `"mode": "visitor"` → Visitor Mode.
+  - If the decoded hash contains `"mode": "guide"` → Guide Mode.
+- **URL encoding structure:** Every hash is a Base64-encoded JSON object with a `mode` field:
+  - Visitor URL: `{ mode: "visitor", assignments: [...] }`
+  - Guide URL: `{ mode: "guide", number: 3, name: "Thomas Becker", visitors: ["Anna Müller", "Jonas Weber"] }`
 
 ---
 
@@ -117,7 +123,7 @@ Triggered when the URL has no hash (e.g. `https://yoursite.github.io/app/`).
   - For each Lernende with a valid `guide_email`, construct a `mailto:` link with:
     - `to`: `guide_email`
     - `subject`: `Your group number for today's event`
-    - `body`: A short message stating their group number and a brief instruction (e.g. "Please wait outside the room and hold up the number [X] on your phone so Schnuppernde can find you.")
+    - `body`: A short message stating their group number, a brief instruction (e.g. "Please wait outside the room and hold up the number [X] on your phone so Schnuppernde can find you."), and their **personal guide link** (the encoded URL for Guide Mode showing only their number).
   - Open each `mailto:` link sequentially with a small delay (300ms) between each to avoid the browser blocking multiple popups.
   - Show a confirmation list of which Lernende were notified and which had no email address in the Excel.
 - Show the "Schnuppernde Staying in Room" section as a separate highlighted list below the QR code.
@@ -174,6 +180,59 @@ Triggered when the URL contains a hash (e.g. `https://yoursite.github.io/app/#ey
 
 ---
 
+## Guide Mode
+
+Triggered when the decoded URL hash contains `"mode": "guide"`.
+
+### Purpose
+
+The Lernende opens their personal link (received via email) on their phone. The app displays their group number fullscreen — large, high-contrast, and optimised to be held up in a room so Schnuppernde can spot them easily.
+
+### Layout
+
+```
+┌────────────────────────────────────────┐
+│                                        │
+│                                        │
+│           Thomas Becker                │
+│                                        │
+│  ┌──────────────────────────────────┐  │
+│  │                                  │  │
+│  │               3                  │  │
+│  │                                  │  │
+│  └──────────────────────────────────┘  │
+│                                        │
+│  Your Schnuppernde:                    │
+│  · Anna Müller                         │
+│  · Jonas Weber                         │
+│                                        │
+└────────────────────────────────────────┘
+```
+
+### Behaviour
+
+- On page load, decode the hash and extract `number`, `name`, and `visitors`.
+- If decoding fails, show: "This link is invalid. Please ask the event coordinator for a new one."
+- Display the Lernende's name at the top.
+- Display the group number in a very large, fullscreen-filling font.
+- Display the list of assigned Schnuppernde names below the number.
+- **Activate the Wake Lock API** (`navigator.wakeLock.request('screen')`) immediately on load to prevent the phone screen from turning off while the Lernende is holding it up.
+  - If Wake Lock is not supported by the browser, show a small unobtrusive warning: "Tip: keep your screen on manually to avoid it turning off."
+  - Re-acquire the Wake Lock if the page becomes visible again after being backgrounded.
+- No interaction required — the page is purely a display.
+
+### Design
+
+- **True fullscreen feel** — no header, no navigation, no clutter.
+- Background: deep blue `#1a3c6e` (inverted from visitor mode for visual distinction).
+- Number: white, `font-size: min(60vw, 60vh)`, `font-weight: 900`, centred both horizontally and vertically.
+- Lernende name: white, smaller font, displayed above the number.
+- Schnuppernde list: white, small font, displayed below the number with reduced opacity (`0.75`) so it doesn't compete visually with the number.
+- Animate the number appearing with a simple scale-in on load.
+
+
+---
+
 ## Design Specifications
 
 ### General
@@ -204,6 +263,15 @@ Triggered when the URL contains a hash (e.g. `https://yoursite.github.io/app/#ey
 - The "stay" result card uses a green background tint.
 - Animate the result card appearing with a simple fade-in.
 
+### Guide Mode
+
+- No header, no padding, no chrome — pure fullscreen display.
+- Deep blue background (`#1a3c6e`) to visually distinguish from Visitor Mode.
+- Number fills as much of the screen as possible: `font-size: min(60vw, 60vh)`.
+- Lernende name above the number in white, `font-size: 1.2rem`.
+- Schnuppernde list below the number in white at `0.75` opacity.
+- Scale-in animation on load (`transform: scale(0.5) → scale(1)`, `transition: 300ms ease-out`).
+
 ---
 
 ## File & Folder Structure
@@ -226,6 +294,8 @@ Triggered when the URL contains a hash (e.g. `https://yoursite.github.io/app/#ey
 | Invalid/corrupt QR hash | "This QR code is invalid or could not be read. Please ask the event coordinator for a new one." |
 | Excel file is empty | "The uploaded file contains no visitor data." |
 | Lernende has no email address | Show a warning in the notification confirmation list: "[Name] — no email address provided, skipped." |
+| Invalid/corrupt guide link | "This link is invalid. Please ask the event coordinator for a new one." |
+| Wake Lock not supported | Show small unobtrusive tip: "Tip: keep your screen on manually to avoid it turning off." |
 
 ---
 

@@ -388,6 +388,79 @@
         padding: 6px 8px;
       }
     }
+
+    /* ============ GUIDE MODE ============ */
+    .guide-container {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--primary);
+      padding: 24px 16px;
+      text-align: center;
+      overflow: hidden;
+    }
+
+    .guide-name {
+      color: var(--white);
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .guide-number {
+      color: var(--white);
+      font-size: min(60vw, 60vh);
+      font-weight: 900;
+      line-height: 1;
+      animation: scaleIn 0.3s ease-out;
+    }
+
+    @keyframes scaleIn {
+      from { transform: scale(0.5); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+
+    .guide-visitors {
+      color: var(--white);
+      opacity: 0.75;
+      font-size: 0.95rem;
+      margin-top: 16px;
+      list-style: none;
+      padding: 0;
+    }
+
+    .guide-visitors-label {
+      color: var(--white);
+      opacity: 0.75;
+      font-size: 0.85rem;
+      margin-top: 24px;
+      font-weight: 600;
+    }
+
+    .guide-visitors li {
+      padding: 4px 0;
+    }
+
+    .guide-tip {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: var(--white);
+      opacity: 0.5;
+      font-size: 0.75rem;
+      text-align: center;
+      max-width: 280px;
+    }
+
+    .guide-error {
+      color: var(--white);
+      font-size: 1.1rem;
+      text-align: center;
+      padding: 32px;
+    }
   </style>
 </head>
 <body>
@@ -483,9 +556,46 @@
     </div>
   </div>
 
+  <!-- ==================== GUIDE MODE ==================== -->
+  <div id="guide-mode" class="hidden">
+    <div class="guide-container">
+      <div id="guide-error" class="guide-error hidden"></div>
+      <div id="guide-display" class="hidden">
+        <div class="guide-name" id="guide-display-name"></div>
+        <div class="guide-number" id="guide-display-number"></div>
+        <div class="guide-visitors-label" id="guide-visitors-label">Your Schnuppernde:</div>
+        <ul class="guide-visitors" id="guide-display-visitors"></ul>
+      </div>
+      <div id="guide-tip" class="guide-tip hidden"></div>
+    </div>
+  </div>
+
   <script>
     (function () {
       'use strict';
+
+      // ========== Encode / Decode Helpers ==========
+      function encodeHash(obj) {
+        var jsonStr = JSON.stringify(obj);
+        var compressed = pako.deflateRaw(jsonStr);
+        var binary = '';
+        for (var i = 0; i < compressed.length; i++) {
+          binary += String.fromCharCode(compressed[i]);
+        }
+        return btoa(binary);
+      }
+
+      function decodeHash() {
+        var raw = window.location.hash.slice(1);
+        if (!raw) return null;
+        var binaryStr = atob(raw);
+        var bytes = new Uint8Array(binaryStr.length);
+        for (var i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        var jsonStr = pako.inflateRaw(bytes, { to: 'string' });
+        return JSON.parse(jsonStr);
+      }
 
       // ========== Levenshtein Distance ==========
       function levenshtein(a, b) {
@@ -509,16 +619,49 @@
         return dp[m][n];
       }
 
+      // ========== Utility ==========
+      function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+      }
+
       // ========== State ==========
       var assignments = [];
       var generatedUrl = '';
 
       // ========== Mode Detection ==========
       var hash = window.location.hash;
-      if (hash && hash.length > 1) {
-        initVisitorMode();
-      } else {
+      if (!hash || hash.length <= 1) {
         initAdminMode();
+      } else {
+        try {
+          var decoded = decodeHash();
+          if (decoded && decoded.mode === 'guide') {
+            initGuideMode(decoded);
+          } else if (decoded && decoded.mode === 'visitor') {
+            initVisitorMode(decoded);
+          } else {
+            // Legacy fallback: treat array payload as visitor data
+            if (Array.isArray(decoded)) {
+              initVisitorMode({ mode: 'visitor', a: decoded });
+            } else {
+              showGlobalError('This QR code is invalid or could not be read. Please ask the event coordinator for a new one.');
+            }
+          }
+        } catch (e) {
+          showGlobalError('This QR code is invalid or could not be read. Please ask the event coordinator for a new one.');
+        }
+      }
+
+      function showGlobalError(msg) {
+        // Show visitor mode with error
+        var visitorEl = document.getElementById('visitor-mode');
+        visitorEl.classList.remove('hidden');
+        var globalError = document.getElementById('visitor-error-global');
+        globalError.textContent = msg;
+        globalError.classList.remove('hidden');
+        document.getElementById('visitor-form').classList.add('hidden');
       }
 
       // ========== ADMIN MODE ==========
@@ -635,7 +778,7 @@
               assignments = [];
               for (var r = 1; r < rows.length; r++) {
                 var row = rows[r];
-                if (!row || !row[0]) continue; // skip empty rows
+                if (!row || !row[0]) continue;
                 var visitorName = String(row[0] || '').trim();
                 var guideName = String(row[1] || '').trim();
                 var guideEmail = String(row[2] || '').trim();
@@ -686,7 +829,6 @@
             grouped[key].push(a);
           });
 
-          // Sort by group number
           var keys = Object.keys(grouped).sort(function (a, b) {
             return Number(a.split('|')[0]) - Number(b.split('|')[0]);
           });
@@ -718,7 +860,6 @@
 
         // Generate QR
         btnGenerate.addEventListener('click', function () {
-          // Compact keys to reduce payload size
           var compact = assignments.map(function (a) {
             var obj = { n: a.visitor_name };
             if (a.stays) { obj.s = 1; }
@@ -728,14 +869,8 @@
             }
             return obj;
           });
-          var jsonStr = JSON.stringify(compact);
-          // Compress with pako then Base64-encode
-          var compressed = pako.deflateRaw(jsonStr);
-          var binary = '';
-          for (var i = 0; i < compressed.length; i++) {
-            binary += String.fromCharCode(compressed[i]);
-          }
-          var encoded = btoa(binary);
+          var payload = { mode: 'visitor', a: compact };
+          var encoded = encodeHash(payload);
           generatedUrl = window.location.origin + window.location.pathname + '#' + encoded;
 
           qrCodeDiv.innerHTML = '';
@@ -751,7 +886,6 @@
           qrSection.classList.remove('hidden');
           copyFeedback.classList.add('hidden');
 
-          // Show/hide Notify button based on checkbox
           if (chkEmail.checked) {
             notifySection.classList.remove('hidden');
           } else {
@@ -761,50 +895,70 @@
           notifyResults.innerHTML = '';
         });
 
-        // Notify Lernende
-        btnNotify.addEventListener('click', function () {
-          // Group by guide_name, collect first non-empty guide_email per guide
+        // Build guide data grouped by guide_name
+        function buildGuideData() {
           var guides = {};
           assignments.forEach(function (a) {
             if (!a.guide_name || a.stays) return;
             if (!guides[a.guide_name]) {
-              guides[a.guide_name] = { email: '', groupNumber: a.group_number };
+              guides[a.guide_name] = { email: '', groupNumber: a.group_number, visitors: [] };
             }
             if (a.guide_email && !guides[a.guide_name].email) {
               guides[a.guide_name].email = a.guide_email;
             }
+            guides[a.guide_name].visitors.push(a.visitor_name);
           });
+          return Object.keys(guides).map(function (name) {
+            return {
+              name: name,
+              email: guides[name].email,
+              groupNumber: guides[name].groupNumber,
+              visitors: guides[name].visitors
+            };
+          });
+        }
 
-          var guideList = Object.keys(guides).map(function (name) {
-            return { name: name, email: guides[name].email, groupNumber: guides[name].groupNumber };
-          });
+        // Generate personal guide URL
+        function buildGuideUrl(g) {
+          var guidePayload = {
+            mode: 'guide',
+            number: g.groupNumber,
+            name: g.name,
+            visitors: g.visitors
+          };
+          var encoded = encodeHash(guidePayload);
+          return window.location.origin + window.location.pathname + '#' + encoded;
+        }
+
+        // Notify Lernende
+        btnNotify.addEventListener('click', function () {
+          var guideList = buildGuideData();
 
           var notified = [];
           var skipped = [];
+          var delay = 0;
 
           guideList.forEach(function (g) {
             if (g.email) {
+              var guideUrl = buildGuideUrl(g);
+              var subject = encodeURIComponent('Your group number for today\'s event');
+              var body = encodeURIComponent(
+                'Hello ' + g.name + ',\n\n' +
+                'Your group number is ' + g.groupNumber + '.\n\n' +
+                'Please wait outside the room and hold up the number ' + g.groupNumber +
+                ' on your phone so Schnuppernde can find you.\n\n' +
+                'Open this link on your phone to display your number:\n' + guideUrl + '\n\nThank you!'
+              );
+              var mailto = 'mailto:' + encodeURIComponent(g.email) + '?subject=' + subject + '&body=' + body;
+              setTimeout(function (url) {
+                window.open(url, '_blank');
+              }, delay, mailto);
+              delay += 300;
               notified.push(g);
             } else {
               skipped.push(g);
             }
           });
-
-          if (notified.length > 0) {
-            var allEmails = notified.map(function (g) { return g.email; }).join(',');
-            var subject = encodeURIComponent('Your group number for today\'s event');
-            var bodyLines = notified.map(function (g) {
-              return g.name + ' → Group ' + g.groupNumber;
-            });
-            var body = encodeURIComponent(
-              'Hello,\n\n' +
-              'Here are today\'s group assignments:\n\n' +
-              bodyLines.join('\n') + '\n\n' +
-              'Please wait outside the room and hold up your group number on your phone so Schnuppernde can find you.\n\nThank you!'
-            );
-            var mailto = 'mailto:' + allEmails + '?subject=' + subject + '&body=' + body;
-            window.location.href = mailto;
-          }
 
           // Render confirmation list
           var html = '';
@@ -848,7 +1002,7 @@
       }
 
       // ========== VISITOR MODE ==========
-      function initVisitorMode() {
+      function initVisitorMode(decoded) {
         var visitorEl = document.getElementById('visitor-mode');
         visitorEl.classList.remove('hidden');
 
@@ -858,18 +1012,11 @@
         var nameInput = document.getElementById('visitor-name');
         var btnFind = document.getElementById('btn-find');
 
-        // Decode data
+        // Extract assignments from decoded payload
         var data;
         try {
-          var raw = window.location.hash.slice(1);
-          var binaryStr = atob(raw);
-          var bytes = new Uint8Array(binaryStr.length);
-          for (var i = 0; i < binaryStr.length; i++) {
-            bytes[i] = binaryStr.charCodeAt(i);
-          }
-          var jsonStr = pako.inflateRaw(bytes, { to: 'string' });
-          var compact = JSON.parse(jsonStr);
-          // Expand compact keys back to full format
+          var compact = decoded.a;
+          if (!Array.isArray(compact) || compact.length === 0) throw new Error('empty');
           data = compact.map(function (c) {
             return {
               visitor_name: c.n,
@@ -879,13 +1026,6 @@
             };
           });
         } catch (e) {
-          globalError.textContent = 'This QR code is invalid or could not be read. Please ask the event coordinator for a new one.';
-          globalError.classList.remove('hidden');
-          visitorForm.classList.add('hidden');
-          return;
-        }
-
-        if (!Array.isArray(data) || data.length === 0) {
           globalError.textContent = 'This QR code is invalid or could not be read. Please ask the event coordinator for a new one.';
           globalError.classList.remove('hidden');
           visitorForm.classList.add('hidden');
@@ -929,13 +1069,11 @@
             return;
           }
 
-          // Filter to best distance
           var best = candidates.filter(function (c) { return c.dist === bestDist; });
 
           if (best.length === 1) {
             showResult(best[0].entry);
           } else {
-            // Disambiguation
             showDisambiguate(best);
           }
         }
@@ -949,7 +1087,7 @@
         });
 
         function showResult(entry) {
-          var stays = String(entry.stays).toLowerCase() === 'true' || entry.stays === true || String(entry.stays).toLowerCase() === 'yes';
+          var stays = entry.stays === true;
 
           if (stays) {
             visitorResult.innerHTML =
@@ -988,7 +1126,6 @@
           visitorResult.innerHTML = html;
           visitorResult.classList.remove('hidden');
 
-          // Attach click handlers
           var buttons = visitorResult.querySelectorAll('.disambiguate-list button');
           buttons.forEach(function (btn) {
             btn.addEventListener('click', function () {
@@ -999,11 +1136,66 @@
         }
       }
 
-      // ========== Utility ==========
-      function escapeHtml(str) {
-        var div = document.createElement('div');
-        div.appendChild(document.createTextNode(str));
-        return div.innerHTML;
+      // ========== GUIDE MODE ==========
+      function initGuideMode(decoded) {
+        var guideEl = document.getElementById('guide-mode');
+        guideEl.classList.remove('hidden');
+
+        var guideError = document.getElementById('guide-error');
+        var guideDisplay = document.getElementById('guide-display');
+        var guideTip = document.getElementById('guide-tip');
+
+        // Validate decoded data
+        if (!decoded || decoded.number == null || !decoded.name) {
+          guideError.textContent = 'This link is invalid. Please ask the event coordinator for a new one.';
+          guideError.classList.remove('hidden');
+          return;
+        }
+
+        // Render display
+        document.getElementById('guide-display-name').textContent = decoded.name;
+        document.getElementById('guide-display-number').textContent = String(decoded.number);
+
+        var visitorsList = document.getElementById('guide-display-visitors');
+        var visitorsLabel = document.getElementById('guide-visitors-label');
+        if (decoded.visitors && decoded.visitors.length > 0) {
+          decoded.visitors.forEach(function (name) {
+            var li = document.createElement('li');
+            li.textContent = '\u00B7 ' + name;
+            visitorsList.appendChild(li);
+          });
+        } else {
+          visitorsLabel.classList.add('hidden');
+        }
+
+        guideDisplay.classList.remove('hidden');
+
+        // Wake Lock API
+        var wakeLock = null;
+        async function requestWakeLock() {
+          try {
+            if ('wakeLock' in navigator) {
+              wakeLock = await navigator.wakeLock.request('screen');
+              wakeLock.addEventListener('release', function () {
+                wakeLock = null;
+              });
+            } else {
+              guideTip.textContent = 'Tip: keep your screen on manually to avoid it turning off.';
+              guideTip.classList.remove('hidden');
+            }
+          } catch (err) {
+            // Wake Lock request failed (e.g. low battery)
+          }
+        }
+
+        requestWakeLock();
+
+        // Re-acquire on visibility change
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'visible' && !wakeLock) {
+            requestWakeLock();
+          }
+        });
       }
 
     })();
