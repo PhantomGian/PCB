@@ -479,7 +479,7 @@
         <div class="drop-zone" id="drop-zone">
           <span class="drop-zone-icon">📄</span>
           <span>Drop your <strong>.xlsx</strong> file here or click to upload</span>
-          <input type="file" id="file-input" accept=".xlsx">
+          <input type="file" id="file-input" accept=".xlsx,.csv">
         </div>
         <div id="upload-error" class="error-msg hidden"></div>
         <div id="upload-success" class="success-msg hidden"></div>
@@ -936,29 +936,30 @@
 
           var notified = [];
           var skipped = [];
-          var delay = 0;
 
+          var bodyLines = [];
           guideList.forEach(function (g) {
             if (g.email) {
               var guideUrl = buildGuideUrl(g);
-              var subject = encodeURIComponent('Your group number for today\'s event');
-              var body = encodeURIComponent(
-                'Hello ' + g.name + ',\n\n' +
-                'Your group number is ' + g.groupNumber + '.\n\n' +
-                'Please wait outside the room and hold up the number ' + g.groupNumber +
-                ' on your phone so Schnuppernde can find you.\n\n' +
-                'Open this link on your phone to display your number:\n' + guideUrl + '\n\nThank you!'
-              );
-              var mailto = 'mailto:' + encodeURIComponent(g.email) + '?subject=' + subject + '&body=' + body;
-              setTimeout(function (url) {
-                window.open(url, '_blank');
-              }, delay, mailto);
-              delay += 300;
+              bodyLines.push(g.name + ' (Group ' + g.groupNumber + '):\n' + guideUrl);
               notified.push(g);
             } else {
               skipped.push(g);
             }
           });
+
+          if (notified.length > 0) {
+            var allEmails = notified.map(function (g) { return g.email; }).join(',');
+            var subject = encodeURIComponent('Your group number for today\'s event');
+            var body = encodeURIComponent(
+              'Hello,\n\n' +
+              'Here are your personal links to display your group number.\n' +
+              'Open your link on your phone and hold it up so Schnuppernde can find you.\n\n' +
+              bodyLines.join('\n\n') + '\n\nThank you!'
+            );
+            var mailto = 'mailto:' + allEmails + '?subject=' + subject + '&body=' + body;
+            window.location.href = mailto;
+          }
 
           // Render confirmation list
           var html = '';
